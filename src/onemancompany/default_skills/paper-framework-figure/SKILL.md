@@ -1,6 +1,6 @@
 ---
 name: paper-framework-figure
-description: Generate a CCF-A-grade paper framework figure via nano banana (google/gemini-2.5-flash-image on OpenRouter). The LLM autonomously summarises the project's background / problems / innovations / technical-route from prior stage outputs, fills a strict 4-section prompt template, calls OpenRouter, decodes the base64 image, and saves a PNG referenced from the stage output. Activate when Stage 4 (Methodology Design) or Stage 8 (Paper Generation) needs a publication-quality framework diagram.
+description: Generate a CCF-A-grade paper framework figure via nano banana (google/gemini-3-pro-image-preview on OpenRouter). The LLM autonomously summarises the project's background / problems / innovations / technical-route from prior stage outputs, fills a strict 4-section prompt template, calls OpenRouter, decodes the base64 image, and saves a PNG referenced from the stage output. Activate when Stage 4 (Methodology Design) or Stage 8 (Paper Generation) needs a publication-quality framework diagram.
 allowed-tools: Read, Write, Bash
 ---
 
@@ -11,7 +11,7 @@ document or a Stage 8 paper draft. The figure must look like it came out
 of a CCF-A venue (NeurIPS / ICML / CVPR / ACL), not a slide deck.
 
 You do **not** sketch by hand or write SVG. You delegate the actual
-drawing to **nano banana** (`google/gemini-2.5-flash-image` on OpenRouter),
+drawing to **nano banana** (`google/gemini-3-pro-image-preview` on OpenRouter),
 which is an image-generation model that takes a long, specific prompt and
 returns a PNG.
 
@@ -186,7 +186,7 @@ write("paper_figure_prompt.md", composed_prompt)
 
 ## Phase 4 — Call nano banana via OpenRouter
 
-Use the OpenRouter API (model `google/gemini-2.5-flash-image`).
+Use the OpenRouter API (model `google/gemini-3-pro-image-preview`).
 **Authenticate with the env var `OPENROUTER_API_KEY`. Do NOT echo the
 key into the chat or write it into any file.**
 
@@ -226,7 +226,7 @@ wrapped = (
     "=== FIGURE SPEC (Chinese) ===\n" + spec
 )
 body = {
-    "model": "google/gemini-2.5-flash-image",
+    "model": "google/gemini-3-pro-image-preview",
     "messages": [{"role": "user", "content": wrapped}],
     "modalities": ["image", "text"],
 }
