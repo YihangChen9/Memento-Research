@@ -1929,6 +1929,112 @@ def test_stage6a_hard_gate_exhausted_opens_ceo_gate(tmp_path, monkeypatch):
     )
 
 
+def test_stage6a_hard_gate_runs_git_probe_when_upstream_repo_present(tmp_path, monkeypatch):
+    """When upstream/ is a real git repo, the hard-gate runs ``git status``
+    to detect uncommitted patches. Covers lines 937-952 (the git probe
+    happy path)."""
+    import subprocess
+
+    # Create a real git repo at upstream/ to exercise the probe path
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=upstream, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test"], cwd=upstream, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=upstream, check=True)
+    (upstream / "f.txt").write_text("x")
+    # Leave the file UNCOMMITTED — git status --short will report it,
+    # and the hard-gate should add the "uncommitted patches" missing-item.
+
+    # Receipt file present so the only gap is the uncommitted patches
+    (tmp_path / "stage6_implementation_receipt.md").write_text("# Receipt\n" + "x" * 250)
+
+    feedbacks = []
+    orig = pe.PipelineEngine._dispatch_producer
+    def _cap(self, feedback=""):
+        feedbacks.append(feedback)
+        return orig(self, feedback=feedback)
+    monkeypatch.setattr(pe, "_find_employee_by_skill",
+                        lambda skill: "emp-coder" if skill == "code_implementer" else None)
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer", _cap)
+
+    engine = pe.PipelineEngine("p", str(tmp_path), "topic")
+    engine.state["current_stage"] = 6
+    engine.state["phase"] = "producer"
+
+    engine.on_task_complete("emp-coder", "n1", "Real-but-incomplete output " * 30)
+
+    assert engine.state["retries"] == 1, "Hard-gate should retry on uncommitted patches"
+    assert any("uncommitted" in fb.lower() for fb in feedbacks), (
+        f"Feedback must name uncommitted patches; got {feedbacks!r}"
+    )
+
+
+def test_on_task_failed_producer_b_retries_via_dispatch_producer_b(tmp_path, monkeypatch):
+    """Mirror of the success-path stub gate: a HARD failure (agent threw)
+    at producer_b also retries via ``_dispatch_producer_b``, not 6a.
+    Covers line 1144 (the producer_b branch in on_task_failed)."""
+    redispatched = []
+
+    def _capture_b(self, feedback=""):
+        redispatched.append(feedback)
+
+    monkeypatch.setattr(pe, "_find_employee_by_skill",
+                        lambda skill: "emp-runner" if skill == "experiment_runner" else None)
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer_b", _capture_b)
+
+    engine = pe.PipelineEngine("p", str(tmp_path), "topic")
+    engine.state["current_stage"] = 6
+    engine.state["phase"] = "producer_b"
+
+    engine.on_task_failed("emp-runner", "n1", "boom: infra timeout")
+
+    assert redispatched, "producer_b failure must trigger _dispatch_producer_b"
+    assert "Stage 6b runner" in redispatched[0]
+
+
+def test_stage3_file_fallback_swallows_read_error(tmp_path, monkeypatch):
+    """The Stage 3 file fallback's outer try/except guards against any
+    read failure (permission, binary content, partial write). Covers
+    lines 1004-1005 (the exception branch)."""
+    monkeypatch.setattr(pe, "_find_employee_by_skill", lambda skill: "emp-critic")
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+
+    # Make Path.read_text raise — simulates a partial-write or permission issue
+    stage_skill = pe.STAGES[2]["skill"]
+    deliverable = tmp_path / f"stage3_{stage_skill}.md"
+    deliverable.write_text("does not matter")  # exists, but we'll patch read_text
+
+    from pathlib import Path as _Path
+    orig_read_text = _Path.read_text
+    def _bad_read_text(self, *args, **kwargs):
+        if self == deliverable:
+            raise OSError("simulated read failure")
+        return orig_read_text(self, *args, **kwargs)
+    monkeypatch.setattr(_Path, "read_text", _bad_read_text)
+
+    engine = pe.PipelineEngine("p", str(tmp_path), "topic")
+    engine.state["current_stage"] = 3
+    engine.state["phase"] = "producer"
+
+    # Should NOT raise; original chat result preserved
+    engine.on_task_complete("emp", "n1", "the chat summary")
+    assert engine.state["stage_results"]["3"] == "the chat summary"
+
+
 def test_stage3_uses_file_deliverable_when_present(tmp_path, monkeypatch):
     """Stage 3's actual deliverable is the literature-conflict-graph file
     on disk, not the agent's chat summary. When the file exists with the
