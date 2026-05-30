@@ -2079,3 +2079,4 @@ def test_find_stage_6b_falls_back_to_canonical_experimentalist(monkeypatch):
         },
     )
     assert pe._find_stage_6b_employee() == "emp-canon"
+
