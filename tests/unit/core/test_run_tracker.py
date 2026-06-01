@@ -79,63 +79,49 @@ def test_summarise_run_keeps_only_documented_fields():
 # _should_poll — phase/stage gate
 # ---------------------------------------------------------------------------
 
-def test_should_poll_returns_true_for_active_phases():
-    eng = SimpleNamespace(current_stage=6, phase="producer_b",
-                          state={"stage_started_at": {}})
-    assert run_tracker._should_poll(eng) is True
-
-    eng.phase = "producer"
-    assert run_tracker._should_poll(eng) is True
-
-    eng.phase = "critic"
-    assert run_tracker._should_poll(eng) is True
+def test_should_poll_state_returns_true_for_active_phases():
+    for phase in ("producer", "producer_b", "critic", "gate"):
+        state = {"current_stage": 6, "phase": phase}
+        assert run_tracker._should_poll_state(state) is True, f"phase={phase}"
 
 
-def test_should_poll_skips_non_stage6_projects():
-    eng = SimpleNamespace(current_stage=4, phase="producer", state={})
-    assert run_tracker._should_poll(eng) is False
+def test_should_poll_state_skips_non_stage6_projects():
+    assert run_tracker._should_poll_state({"current_stage": 4, "phase": "producer"}) is False
 
 
-def test_should_poll_skips_old_done_projects():
+def test_should_poll_state_skips_old_done_projects():
     """``phase=done`` projects fall out of the poll cycle after 6 hours so
     we don't burn requests forever on completed projects."""
     from datetime import datetime, timedelta, timezone
     long_ago = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
-    eng = SimpleNamespace(current_stage=6, phase="done",
-                          state={"stage_started_at": {"6": long_ago}})
-    assert run_tracker._should_poll(eng) is False
+    state = {"current_stage": 6, "phase": "done", "stage_started_at": {"6": long_ago}}
+    assert run_tracker._should_poll_state(state) is False
 
 
 # ---------------------------------------------------------------------------
 # poll_active_projects — end-to-end behaviour
 # ---------------------------------------------------------------------------
 
+def _make_project_iter(tmp_path, pid: str, phase: str = "producer_b"):
+    """Create a fake ``projects/<pid>/iterations/iter_001/pipeline_state.yaml``
+    under ``tmp_path/projects/`` and return the iter_dir Path. Used by
+    disk-walking tests."""
+    import yaml
+    iter_dir = tmp_path / "projects" / pid / "iterations" / "iter_001"
+    iter_dir.mkdir(parents=True)
+    state = {"current_stage": 6, "phase": phase, "stage_6_runs": {}}
+    (iter_dir / "pipeline_state.yaml").write_text(yaml.safe_dump(state))
+    return iter_dir
+
+
 @pytest.mark.asyncio
-async def test_poll_active_projects_updates_state_for_matching_runs(monkeypatch):
+async def test_poll_active_projects_updates_state_for_matching_runs(monkeypatch, tmp_path):
     """When the infra response includes a run for an active OMC project,
-    that project's ``stage_6_runs`` map is populated with the summarised
-    record."""
-    saved = {}
-    state = {"current_stage": 6, "stage_6_runs": {}}
+    that project's ``stage_6_runs`` map is persisted onto disk."""
+    import yaml
 
-    class _FakeEngine:
-        current_stage = 6
-        phase = "producer_b"
-
-        def __init__(self):
-            self.state = state
-
-        def _iteration_id(self):
-            return "iter_001"
-
-        def _save(self):
-            saved.update(self.state)
-
-    fake = _FakeEngine()
-    monkeypatch.setattr(run_tracker, "_active_pipelines", {"abc123": fake}, raising=False)
-    # Inject _active_pipelines as a module-level attribute on pipeline_engine
-    from onemancompany.core import pipeline_engine
-    monkeypatch.setattr(pipeline_engine, "_active_pipelines", {"abc123": fake})
+    iter_dir = _make_project_iter(tmp_path, "abc123", phase="producer_b")
+    monkeypatch.setattr("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects")
 
     monkeypatch.setattr(run_tracker, "_list_infra_runs", lambda limit=100: [
         {
@@ -157,18 +143,20 @@ async def test_poll_active_projects_updates_state_for_matching_runs(monkeypatch)
 
     counts = await run_tracker.poll_active_projects()
     assert counts == {"abc123": 1}
-    assert "run_xyz" in saved.get("stage_6_runs", {})
-    assert "run_other" not in saved.get("stage_6_runs", {})
-    assert saved["stage_6_runs"]["run_xyz"]["status"] == "succeeded"
-    assert saved["stage_6_runs"]["run_xyz"]["actual_cost"] == 0.05
+
+    on_disk = yaml.safe_load((iter_dir / "pipeline_state.yaml").read_text())
+    assert "run_xyz" in on_disk["stage_6_runs"]
+    assert "run_other" not in on_disk["stage_6_runs"]
+    assert on_disk["stage_6_runs"]["run_xyz"]["status"] == "succeeded"
+    assert on_disk["stage_6_runs"]["run_xyz"]["actual_cost"] == 0.05
 
 
 @pytest.mark.asyncio
-async def test_poll_active_projects_no_active_returns_empty(monkeypatch):
-    """When no project is in an active Stage 6 phase, the poller skips
-    the infra call entirely."""
-    from onemancompany.core import pipeline_engine
-    monkeypatch.setattr(pipeline_engine, "_active_pipelines", {})
+async def test_poll_active_projects_no_active_returns_empty(monkeypatch, tmp_path):
+    """When the projects dir has no active Stage 6 iters, the poller
+    skips the infra call entirely."""
+    (tmp_path / "projects").mkdir()
+    monkeypatch.setattr("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects")
 
     called = {"infra": False}
     def _no_call(limit=100):
@@ -178,37 +166,41 @@ async def test_poll_active_projects_no_active_returns_empty(monkeypatch):
 
     counts = await run_tracker.poll_active_projects()
     assert counts == {}
-    assert called["infra"] is False, "Should NOT call infra when no active projects"
+    assert called["infra"] is False, "Should NOT call infra when no active projects on disk"
 
 
 @pytest.mark.asyncio
-async def test_poll_active_projects_handles_empty_infra_response(monkeypatch):
+async def test_poll_active_projects_handles_empty_infra_response(monkeypatch, tmp_path):
     """Infra returning ``[]`` (network failure, empty session) leaves
-    state untouched but still reports the project as 'seen' with 0 runs."""
-    state = {"current_stage": 6, "stage_6_runs": {"existing": {"status": "running"}}}
+    on-disk state untouched but still reports the project as seen with 0 runs."""
+    import yaml
 
-    class _FakeEngine:
-        current_stage = 6
-        phase = "producer_b"
+    iter_dir = _make_project_iter(tmp_path, "abc", phase="producer_b")
+    # Seed with existing runs we expect NOT to be wiped.
+    state = yaml.safe_load((iter_dir / "pipeline_state.yaml").read_text())
+    state["stage_6_runs"] = {"existing": {"status": "running"}}
+    (iter_dir / "pipeline_state.yaml").write_text(yaml.safe_dump(state))
 
-        def __init__(self):
-            self.state = state
-            self._saved = False
-
-        def _iteration_id(self):
-            return "iter_001"
-
-        def _save(self):
-            self._saved = True
-
-    fake = _FakeEngine()
-    from onemancompany.core import pipeline_engine
-    monkeypatch.setattr(pipeline_engine, "_active_pipelines", {"abc": fake})
+    monkeypatch.setattr("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects")
     monkeypatch.setattr(run_tracker, "_list_infra_runs", lambda limit=100: [])
 
     counts = await run_tracker.poll_active_projects()
     assert counts == {"abc": 0}
-    # The existing run map is preserved when infra returns []; we don't
-    # overwrite known state with no data.
-    assert state["stage_6_runs"] == {"existing": {"status": "running"}}
-    assert fake._saved is False
+    on_disk = yaml.safe_load((iter_dir / "pipeline_state.yaml").read_text())
+    assert on_disk["stage_6_runs"] == {"existing": {"status": "running"}}, (
+        "Existing runs must be preserved when infra returns no data"
+    )
+
+
+@pytest.mark.asyncio
+async def test_poll_active_projects_skips_underscore_prefixed_project_dirs(monkeypatch, tmp_path):
+    """``_adhoc_ceo`` and other underscore-prefixed system dirs are not
+    real projects and must not show up in poll targets."""
+    _make_project_iter(tmp_path, "_adhoc_ceo", phase="producer_b")
+    _make_project_iter(tmp_path, "real_pid_aaa", phase="producer_b")
+    monkeypatch.setattr("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects")
+    monkeypatch.setattr(run_tracker, "_list_infra_runs", lambda limit=100: [])
+
+    counts = await run_tracker.poll_active_projects()
+    assert "_adhoc_ceo" not in counts
+    assert "real_pid_aaa" in counts
