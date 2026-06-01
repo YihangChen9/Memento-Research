@@ -1137,16 +1137,15 @@ async def list_project_runs(project_id: str) -> dict:
     the run_tracker has not run since the project started.
     """
     from collections import Counter
-    from onemancompany.core.pipeline_engine import _active_pipelines, _load_state
+    from onemancompany.core.pipeline_engine import _load_state
     from onemancompany.core.project_archive import get_project_dir
 
-    engine = _active_pipelines.get(project_id)
-    if engine is not None:
-        state = engine.state
-    else:
-        # Engine GC'd (phase=done long ago): cold-load from disk.
-        pdir = get_project_dir(project_id)
-        state = (_load_state(str(pdir)) or {}) if pdir else {}
+    # Always re-read from disk: ``run_tracker`` is the cron writer and disk
+    # is the single source of truth. Reading from ``_active_pipelines[pid].state``
+    # was observed to lag — the engine's own _save() round-trips its
+    # in-memory snapshot which may not yet reflect the latest cron tick.
+    pdir = get_project_dir(project_id)
+    state = (_load_state(str(pdir)) or {}) if pdir else {}
 
     runs = state.get("stage_6_runs", {}) or {}
     totals = Counter(r.get("status", "unknown") for r in runs.values())
