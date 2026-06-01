@@ -105,6 +105,37 @@ table — if the table is vague, Stage 6 fails.
 - ✅ Tense consistency (past for debate, present for design intent, `we will` for planned execution).
 - ❌ Bullet-list-only experimental procedure.
 
+### D13 — Claim Coverage (Stage 4 ↔ Stage 5 contract)
+
+Stage 4's methodology contains an **Empirical Claims List** under
+Section 2 — a list of `C1, C2, … Cn` empirical statements the paper
+intends to back with data. Stage 5's job is to design one
+sub-experiment for each `Ci`. This dimension checks that the
+sub-experiment count matches the claim count and that every claim
+has data backing.
+
+- ✅ Every `Ci` in the Stage 4 Empirical Claims List is named verbatim
+  by at least one `Sub-Experiment <i>` header in Stage 5 Section 3.
+- ✅ Each `Sub-Experiment <i>` block lists its IVs, DVs, procedure,
+  and cell / replicate count — sufficient for Stage 6a to write
+  runnable code for that sub-experiment alone.
+- ✅ Stage 6 will dispatch per-Sub-Experiment rows in
+  `stage5_assignments.md` (D10 sanity-checks this) — so claim count
+  also drives Stage 6 fan-out.
+- ⚠️ **No hardcoded breadth requirement.** This dimension does NOT
+  demand a specific mix of "main / hyperparameter / ablation" — the
+  Stage 4 Empirical Claims List decides what's needed for THIS
+  paper. One claim → one sub-experiment is correct; eight claims →
+  eight sub-experiments is correct.
+- ❌ Sub-experiment count < claim count → REJECT (orphan claims have
+  nothing to back them in the paper).
+- ❌ Sub-experiment count > claim count without explicit justification
+  in Section 1 → soft-flag, not auto-REJECT (extra sub-experiments
+  are usually diagnostic explorations; harmless).
+- ❌ Stage 4 has no Empirical Claims List section → REJECT Stage 5
+  AND flag a Stage 4 regression (the upstream methodology runbook
+  should have produced one).
+
 ---
 
 ## How to Run the Review
@@ -112,7 +143,7 @@ table — if the table is vague, Stage 6 fails.
 1. Verify all three files exist (`stage5_experiment_designer.md`,
    `stage5_assignments.md`, `stage5_debate_transcript.md`).
 2. Read the experiment plan and assignments table in full.
-3. Walk the 12-dimension checklist. PASS / FAIL with one-sentence rationale.
+3. Walk the 13-dimension checklist. PASS / FAIL with one-sentence rationale.
 4. Aggregate per the decision rule.
 
 ---
@@ -136,6 +167,7 @@ Per-dimension scoring:
   D10 Coordination Plan        : PASS / FAIL — <one sentence>
   D11 Citation of Debate       : PASS / FAIL — <one sentence>
   D12 Language & Style         : PASS / FAIL — <one sentence>
+  D13 Claim Coverage           : PASS / FAIL — <one sentence>
 
 If REJECT, list the specific section(s) the producer must rewrite, with
 example improvements drawn from the debate transcript where possible.
@@ -150,10 +182,12 @@ example improvements drawn from the debate transcript where possible.
 
 ### Decision rule
 
-ALL of D1, D2, D3, D4, D5, D8, D10 must PASS for overall PASS. D10
-specifically is non-negotiable — Stage 6 cannot dispatch from a missing
-assignments table. D6/D7/D9/D11/D12 failures alone are not auto-REJECT but
-pull confidence below 0.85.
+ALL of D1, D2, D3, D4, D5, D8, D10, D13 must PASS for overall PASS.
+D10 is non-negotiable — Stage 6 cannot dispatch from a missing
+assignments table. D13 is non-negotiable — a Stage 5 plan whose
+sub-experiment count does not cover Stage 4's claim list will leave
+orphan claims unsupported in the paper. D6/D7/D9/D11/D12 failures
+alone are not auto-REJECT but pull confidence below 0.85.
 
 **Exceptions that auto-REJECT regardless of other dimensions:**
 - Any of the three required files missing.
