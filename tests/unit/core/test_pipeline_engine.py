@@ -1974,6 +1974,89 @@ def test_stage6a_hard_gate_runs_git_probe_when_upstream_repo_present(tmp_path, m
     )
 
 
+def test_failure_indicates_impl_bug_detects_smoke_keywords():
+    """``_failure_indicates_impl_bug`` recognises the keywords the runner
+    surfaces when the bug lives in Stage 6a's code (smoke crash, RESULT_JSON
+    missing, KeyError, accuracy=0). Closes #60 fix 3 helper."""
+    is_impl = pe.PipelineEngine._failure_indicates_impl_bug
+
+    # Positive — impl bug
+    assert is_impl("SMOKE_FAIL status=failed") is True
+    assert is_impl("QUALITY_FAIL_ACCURACY_ZERO acc_d=0.0") is True
+    assert is_impl("Status returned blocked_smoke_failure") is True
+    assert is_impl("Result NO_RESULT_JSON in smoke tail") is True
+    assert is_impl("KeyError: 'accuracy_direct' in scorer") is True
+    assert is_impl("ImportError when running benchmarks/main.py") is True
+    assert is_impl("Cohort accuracy=0 across all problems") is True
+
+    # Negative — infra issue, NOT an impl bug
+    assert is_impl("HTTP 401: Authentication failed") is False
+    assert is_impl("Session budget exhausted: $0.00 remaining") is False
+    assert is_impl("Connection timeout to runner host") is False
+    assert is_impl("") is False
+    assert is_impl(None) is False
+
+
+def test_on_task_failed_producer_b_routes_to_6a_on_impl_bug_signal(tmp_path, monkeypatch):
+    """When 6b reports a failure containing an impl-bug signal (e.g.
+    ``SMOKE_FAIL``), the next retry must route to 6a
+    (``_dispatch_producer``), not re-dispatch 6b on the same broken
+    code. Closes #60 fix 3."""
+    routed = []
+    monkeypatch.setattr(pe, "_find_employee_by_skill",
+                        lambda skill: "emp-coder" if skill == "code_implementer" else "emp-runner")
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer",
+                        lambda self, feedback="": routed.append(("a", feedback)))
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer_b",
+                        lambda self, feedback="": routed.append(("b", feedback)))
+
+    engine = pe.PipelineEngine("p", str(tmp_path), "topic")
+    engine.state["current_stage"] = 6
+    engine.state["phase"] = "producer_b"
+
+    engine.on_task_failed("emp-runner", "n1", "SMOKE_FAIL status=failed at canary problem 3")
+
+    assert routed and routed[0][0] == "a", (
+        f"6b smoke-failure must route back to 6a, got {routed!r}"
+    )
+    assert "Stage 6a" in routed[0][1] and "implementation bug" in routed[0][1]
+    # Phase is flipped so subsequent on_task_complete handles a 6a completion.
+    assert engine.state["phase"] == "producer"
+
+
+def test_on_task_failed_producer_b_stays_on_6b_for_infra_failures(tmp_path, monkeypatch):
+    """A 6b failure with NO impl-bug signal (HTTP 401, network timeout)
+    keeps retrying 6b — re-running 6a on a healthy implementation would
+    be wasted work."""
+    routed = []
+    monkeypatch.setattr(pe, "_find_employee_by_skill", lambda skill: "emp-runner")
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer_b",
+                        lambda self, feedback="": routed.append(("b", feedback)))
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer",
+                        lambda self, feedback="": routed.append(("a", feedback)))
+
+    engine = pe.PipelineEngine("p", str(tmp_path), "topic")
+    engine.state["current_stage"] = 6
+    engine.state["phase"] = "producer_b"
+
+    engine.on_task_failed("emp-runner", "n1", "HTTP 401 Authentication failed for remote infra")
+
+    assert routed and routed[0][0] == "b", (
+        f"6b infra failure should stay on 6b, got {routed!r}"
+    )
+    assert engine.state["phase"] == "producer_b"
+
+
 def test_on_task_failed_producer_b_retries_via_dispatch_producer_b(tmp_path, monkeypatch):
     """Mirror of the success-path stub gate: a HARD failure (agent threw)
     at producer_b also retries via ``_dispatch_producer_b``, not 6a.

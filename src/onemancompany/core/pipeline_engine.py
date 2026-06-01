@@ -1117,10 +1117,24 @@ class PipelineEngine:
             return
 
         truncated = (result or "(no output)").strip()[:600]
-        # Differentiate 6a vs 6b failures so the retry feedback names the
-        # right sub-phase. A 6b failure (runner) does not retry 6a — the
-        # code is already on disk; only the runner pass is re-tried.
-        if current_phase == "producer_b":
+        # Differentiate 6a vs 6b failures and ROUTE smoke/impl-bug 6b failures
+        # back to 6a (#60 fix 3). Heuristic: if the failure text shows
+        # signals that the runner's environment is healthy but the
+        # implementation is broken (smoke crash / RESULT_JSON missing /
+        # accuracy=0 / KeyError in user code), the right action is to
+        # re-dispatch 6a with feedback — retrying 6b on a broken impl
+        # just burns infra cycles. Otherwise (infra timeout, 401, etc.)
+        # keep the current behaviour: re-dispatch 6b.
+        route_target = current_phase
+        if current_phase == "producer_b" and self._failure_indicates_impl_bug(result):
+            route_target = "producer"
+            failure_feedback = (
+                "Stage 6b reported a failure that looks like a Stage 6a implementation bug, "
+                f"not an infra issue. Re-dispatching Stage 6a to fix it. Failure context:\n{truncated}\n\n"
+                "Common impl-bug signals: smoke run crashed, RESULT_JSON missing, accuracy=0, "
+                "truncation>50%, KeyError in user code. Fix the code, commit, re-push, re-write receipt."
+            )
+        elif current_phase == "producer_b":
             failure_feedback = (
                 f"Stage 6b runner failed without producing a deliverable. "
                 f"Failure context:\n{truncated}"
@@ -1133,14 +1147,15 @@ class PipelineEngine:
         retries = self.state.get("retries", 0)
         if retries < MAX_RETRIES:
             self.state["retries"] = retries + 1
-            self.state["phase"] = current_phase
+            self.state["phase"] = route_target
             self._save()
             logger.warning(
-                "[PIPELINE] Stage {} {} FAILED (retry {}/{}) — re-dispatching",
+                "[PIPELINE] Stage {} {} FAILED (retry {}/{}) — re-dispatching {}",
                 stage["id"], current_phase, retries + 1, MAX_RETRIES,
+                "as 6a (impl-bug route-back, #60 fix 3)" if route_target != current_phase else route_target,
             )
             self._emit_stage_event("stage_failed", stage["id"])
-            if current_phase == "producer_b":
+            if route_target == "producer_b":
                 self._dispatch_producer_b(feedback=failure_feedback)
             else:
                 self._dispatch_producer(feedback=failure_feedback)
@@ -1402,6 +1417,48 @@ class PipelineEngine:
     # ------------------------------------------------------------------
     # Critic result parsing
     # ------------------------------------------------------------------
+
+    # Signals in a Stage 6b failure result that point to an impl bug in 6a,
+    # not a transient infra issue (#60 fix 3). When any of these appears,
+    # ``on_task_failed`` routes back to 6a so the next retry rebuilds /
+    # commits / re-pushes code rather than re-running the same broken impl
+    # on the runner. Order: most-specific first so log messages stay tight.
+    _IMPL_BUG_SIGNALS = (
+        "SMOKE_FAIL",
+        "QUALITY_FAIL",
+        "QUALITY_FAIL_ACCURACY_ZERO",
+        "QUALITY_FAIL_TRUNCATED",
+        "blocked_smoke_failure",
+        "blocked_smoke_invalid",
+        "NO_RESULT_JSON",
+        "NO_METRICS",
+        "RESULT_JSON missing",
+        "RESULT_JSON: missing",
+        "KeyError",
+        "TypeError",
+        "ImportError when running",
+        "ModuleNotFoundError when running",
+        "accuracy=0",
+        "accuracy: 0",
+        "truncation_rate=1",
+    )
+
+    @classmethod
+    def _failure_indicates_impl_bug(cls, result: str) -> bool:
+        """Inspect a Stage 6b failure payload for signals that the bug
+        lives in Stage 6a's code, not in the runner's infra. Used by
+        ``on_task_failed`` to route the next retry back to 6a (#60 fix 3).
+
+        False-positives are cheaper than false-negatives here: a stray
+        keyword in an infra error → wasted 6a retry (~10 min Claude) but
+        the hard-gate + critic will keep the code honest. A miss →
+        endless 6b retries on broken impl, which is the failure mode
+        Anjie reported.
+        """
+        if not result:
+            return False
+        text = result if isinstance(result, str) else str(result)
+        return any(sig in text for sig in cls._IMPL_BUG_SIGNALS)
 
     @staticmethod
     def _is_stub_result(result: str) -> bool:
