@@ -552,6 +552,25 @@ async def schedule_cleanup() -> list | None:
     return None
 
 
+@system_cron("run_tracker", interval="30s", description="Stage 6 run_id map refresh from infra /api/list_runs")
+async def run_tracker_poll() -> list | None:
+    """Refresh every active Stage 6 project's ``stage_6_runs`` map.
+
+    Polls infra ``/api/list_runs`` once per tick, splits the response by
+    OMC project (via ``omc/<pid>/<iter>`` substring in ``run_command``),
+    and writes the per-project run map back onto each engine's
+    pipeline_state. Lets ``GET /api/project/<pid>/runs`` serve live
+    run status without re-querying infra.
+
+    Degrades gracefully: any failure (missing INFRA_SESSION_KEY, network
+    error, schema drift) silently returns 0 updates rather than poison
+    the cron loop.
+    """
+    from onemancompany.core.run_tracker import poll_active_projects
+    await poll_active_projects()
+    return None
+
+
 def _build_tree_status_summary(tree) -> str:
     """Build a concise status summary of all active nodes in the tree."""
     lines = []

@@ -1110,6 +1110,55 @@ async def pipeline_status(project_id: str):
     }
 
 
+@router.get("/api/project/{project_id}/runs")
+async def list_project_runs(project_id: str) -> dict:
+    """Return the Stage 6 run-id map for ``project_id``.
+
+    Populated by the ``run_tracker`` cron, which polls infra
+    ``/api/list_runs`` every 30 s and writes the filtered per-project
+    run map into ``pipeline_state["stage_6_runs"]``. This endpoint
+    just reads that map (no infra call), so it is cheap to hit at UI
+    refresh rates.
+
+    Response shape::
+
+        {
+          "project_id": "...",
+          "stage": 6,
+          "phase": "producer_b" | "critic" | "done" | ...,
+          "runs": {
+            "run_xxx": {"status": "...", "actual_cost": 0.0, ...},
+            ...
+          },
+          "totals": {"succeeded": 2, "running": 1, "failed": 0}
+        }
+
+    Returns ``runs: {}`` if the project has no Stage 6 activity yet or
+    the run_tracker has not run since the project started.
+    """
+    from collections import Counter
+    from onemancompany.core.pipeline_engine import _active_pipelines, _load_state
+    from onemancompany.core.project_archive import get_project_dir
+
+    engine = _active_pipelines.get(project_id)
+    if engine is not None:
+        state = engine.state
+    else:
+        # Engine GC'd (phase=done long ago): cold-load from disk.
+        pdir = get_project_dir(project_id)
+        state = (_load_state(str(pdir)) or {}) if pdir else {}
+
+    runs = state.get("stage_6_runs", {}) or {}
+    totals = Counter(r.get("status", "unknown") for r in runs.values())
+    return {
+        "project_id": project_id,
+        "stage": state.get("current_stage"),
+        "phase": state.get("phase"),
+        "runs": runs,
+        "totals": dict(totals),
+    }
+
+
 @router.post("/api/oneonone/chat")
 async def oneonone_chat(body: dict) -> dict:
     """Per-message 1-on-1 chat.
