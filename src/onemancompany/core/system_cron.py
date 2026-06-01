@@ -175,10 +175,16 @@ class SystemCronManager:
         logger.info("System crons started: {}", [n for n in self._registry if n not in self._disabled])
 
     async def stop_all(self) -> None:
-        """Stop all running system crons."""
+        """Stop all running system crons.
+
+        Server-shutdown path: cancel every task in memory but do NOT
+        mark them user-disabled (``persist=False``). On the next startup
+        the same set will auto-start again unless the user has explicitly
+        called ``disable``/``stop`` via the cron API.
+        """
         tasks_to_await = list(self._tasks.values())
         for name in list(self._tasks.keys()):
-            self.stop(name)
+            self.stop(name, persist=False)
         if tasks_to_await:
             await asyncio.gather(*tasks_to_await, return_exceptions=True)
         self._tasks.clear()
@@ -206,14 +212,25 @@ class SystemCronManager:
         self._persist_state()
         return {"status": "ok", "name": name}
 
-    def stop(self, name: str) -> dict:
-        """Stop a single system cron by name. Persists disabled state to disk."""
+    def stop(self, name: str, *, persist: bool = True) -> dict:
+        """Stop a single system cron by name.
+
+        By default this is treated as a user-initiated disable: the cron
+        name is added to the persisted ``disabled`` set so subsequent
+        ``start_all()`` calls (e.g. after a server restart) skip it.
+
+        Pass ``persist=False`` for transient stops (e.g. server shutdown
+        via ``stop_all()``) — that path cancels the task in memory but
+        does NOT mark the cron user-disabled, so it auto-resumes on the
+        next start.
+        """
         task = self._tasks.pop(name, None)
         if task and not task.done():
             task.cancel()
-        self._disabled.add(name)
-        self._enabled.discard(name)
-        self._persist_state()
+        if persist:
+            self._disabled.add(name)
+            self._enabled.discard(name)
+            self._persist_state()
         return {"status": "ok", "name": name}
 
     def update_interval(self, name: str, new_interval: str) -> dict:
