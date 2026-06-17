@@ -1,9 +1,40 @@
 {
-  "acc_raw_mean": 0.9490451793199813,
-  "acc_raw_std": 0.02181142151529349,
-  "acc_scaled_mean": 0.9789163173420278,
-  "acc_scaled_std": 0.01592660438877533,
-  "delta_mean": 0.02987113802204644,
+  "version": "1.0.0",
+  "dataset": "breast_cancer_wisconsin",
+  "model": "LogisticRegression(max_iter=5000)",
+  "treatments": [
+    "raw",
+    "scaled"
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
   "n_folds": 5,
-  "n_seeds": 1
+  "acc_raw_mean": 0.9508047404647312,
+  "acc_raw_std": 0.0017544088637887292,
+  "acc_scaled_mean": 0.9789266677017027,
+  "acc_scaled_std": 8.963674416763626e-06,
+  "delta_mean": 0.02812192723697149,
+  "delta_std": 0.001746628945346526,
+  "seed_delta": [
+    0.02987113802204644,
+    0.02811675205713393,
+    0.026377891631734096
+  ],
+  "seed_mean_accuracy_raw": [
+    0.9490451793199813,
+    0.9508150908244062,
+    0.952553951249806
+  ],
+  "seed_mean_accuracy_scaled": [
+    0.9789163173420278,
+    0.9789318428815401,
+    0.9789318428815401
+  ],
+  "runtime_seconds": 5.303,
+  "converged_all_folds": true,
+  "warnings_count": 0,
+  "audit_file": "audit.jsonl"
 }
