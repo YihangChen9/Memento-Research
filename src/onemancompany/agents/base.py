@@ -687,6 +687,42 @@ class BaseAgentRunner:
             CompanyEvent(type=event_type, payload=payload, agent=self.role)
         )
 
+    async def _wrapup_text(self, prompt: str, task: str, last_tool_results: list) -> str:
+        """One tool-free LLM call to recover a final text answer when the agent
+        ended a turn with no text despite having done tool work.
+
+        Returns the recovered text, or ``""`` on any failure (the caller then
+        falls back to the legacy "Executed: <tools>" synthesis). A raw
+        ``make_llm`` instance has no tools bound, so it cannot loop — it must
+        answer in text.
+        """
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+            llm = make_llm(self.employee_id)
+            digest = "\n".join(str(r) for r in (last_tool_results or []))[:8000]
+            msgs = [
+                SystemMessage(content=prompt),
+                HumanMessage(content=task),
+                HumanMessage(content=(
+                    "You executed the tools below but did NOT write a final text "
+                    "answer. Do not call any tools now. Using only what these "
+                    "results show, write your FINAL deliverable / result / verdict "
+                    "as plain text — the answer the task asked for:\n\n"
+                    + (digest or "(no tool output captured)")
+                )),
+            ]
+            resp = await llm.ainvoke(msgs)
+            text = _extract_text(getattr(resp, "content", "") or "")
+            if text.strip():
+                logger.warning(
+                    "[WRAPUP] employee={} recovered a {}-char final answer after "
+                    "an empty final turn", self.employee_id, len(text),
+                )
+            return text
+        except Exception as exc:  # noqa: BLE001 — never let wrap-up failure kill the task
+            logger.warning("[WRAPUP] employee={} wrap-up call failed: {}", self.employee_id, exc)
+            return ""
+
     async def run_streamed(self, task: str, on_log=None) -> str:
         """Run agent with streaming, calling on_log(type, content) for each LLM step.
 
@@ -826,11 +862,20 @@ class BaseAgentRunner:
                 import asyncio as _asyncio
                 await _asyncio.sleep(_delay)
 
-        # If no text content from LLM, synthesize from last tool calls
-        if not final_content.strip() and last_tool_calls:  # pragma: no cover
-            parts = [f"Executed: {', '.join(last_tool_calls)}"]  # pragma: no cover
-            parts.extend(last_tool_results)  # pragma: no cover
-            final_content = "\n".join(parts)  # pragma: no cover
+        # The agent did real tool work but its final turn produced no text
+        # (hit recursion_limit mid-loop, or returned a tool-call-only final
+        # message). Shipping a 14-char "Executed: bash" stub here is the single
+        # most damaging failure mode: the pipeline reads it as a failure and
+        # burns retries at EVERY stage (6a/6b/critic/paper-writer, observed in
+        # runs 8656/1e1c/9dd6/c49e8a/32e19f). Make ONE tool-free wrap-up call so
+        # the agent states its result in text; fall back to the old synthesis
+        # only if that also yields nothing (never worse than before).
+        if not final_content.strip() and (last_tool_calls or last_tool_results):
+            final_content = await self._wrapup_text(prompt, task, last_tool_results)
+            if not final_content.strip():
+                parts = [f"Executed: {', '.join(last_tool_calls)}"]
+                parts.extend(last_tool_results)
+                final_content = "\n".join(parts)
 
         # Compute cost: prefer provider-reported cost, fallback to catalog price
         _model = model_used or self._get_model_name()

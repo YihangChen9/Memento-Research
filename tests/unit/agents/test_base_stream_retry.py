@@ -129,3 +129,81 @@ async def test_run_streamed_does_not_retry_non_transient_errors():
             await runner.run_streamed("do the thing", on_log=lambda *_a: None)
 
     assert agent.stream_calls == 1  # no retries for non-transient errors
+
+
+# ---------------------------------------------------------------------------
+# Empty-final-turn wrap-up (P0): the agent does real tool work but its final
+# turn has no text (hit recursion_limit mid-loop, or a tool-call-only final
+# message). Instead of shipping a 14-char "Executed: bash" stub — which the
+# pipeline reads as a failure and burns retries on at EVERY stage (6a/6b/
+# critic/paper-writer) — make ONE tool-free wrap-up call so the agent states
+# its result in text.
+# ---------------------------------------------------------------------------
+
+class _Out:
+    """Minimal stand-in for a LangChain AIMessage from a stream event."""
+    def __init__(self, content="", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls or []
+        self.response_metadata = {}
+        self.usage_metadata = None
+
+
+class _FakeLLM:
+    def __init__(self, reply: str):
+        self.reply = reply
+        self.calls = 0
+
+    async def ainvoke(self, _msgs):
+        self.calls += 1
+        return _Out(self.reply)
+
+
+def _empty_final_turn_events():
+    return [
+        {"event": "on_chat_model_end",
+         "data": {"output": _Out("", [{"name": "bash", "args": {"command": "python -m bench"}}])}},
+        {"event": "on_tool_end", "name": "bash",
+         "data": {"output": "=== RESULT_JSON: {\"accuracy\": 0.8} ==="}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_final_turn_triggers_wrapup_not_stub():
+    agent = _FakeAgent(events=_empty_final_turn_events(), n_fail=0)
+    runner = _make_runner(agent)
+    fake = _FakeLLM("Final result: the benchmark ran, accuracy 0.8 (RESULT_JSON).")
+    with patch.object(base_mod, "make_llm", lambda _eid: fake):
+        result = await runner.run_streamed("run the benchmark", on_log=lambda *_a: None)
+    assert fake.calls == 1, "must make exactly one wrap-up call"
+    assert "accuracy 0.8" in result
+    assert not result.startswith("Executed:"), "must NOT ship the 14-char stub"
+
+
+@pytest.mark.asyncio
+async def test_wrapup_empty_falls_back_to_stub():
+    """If the wrap-up call ALSO yields no text, fall back to the old synthesis
+    (no regression — never worse than before)."""
+    agent = _FakeAgent(events=_empty_final_turn_events(), n_fail=0)
+    runner = _make_runner(agent)
+    with patch.object(base_mod, "make_llm", lambda _eid: _FakeLLM("")):
+        result = await runner.run_streamed("run the benchmark", on_log=lambda *_a: None)
+    assert result.startswith("Executed:")
+    assert "bash" in result
+
+
+@pytest.mark.asyncio
+async def test_nonempty_final_turn_skips_wrapup():
+    """Regression: when the agent DID return final text, no wrap-up call is
+    made and that text is returned verbatim."""
+    events = [
+        {"event": "on_chat_model_end",
+         "data": {"output": _Out("Decision: PASS. Confidence 0.9.", [])}},
+    ]
+    agent = _FakeAgent(events=events, n_fail=0)
+    runner = _make_runner(agent)
+    fake = _FakeLLM("SHOULD NOT BE CALLED")
+    with patch.object(base_mod, "make_llm", lambda _eid: fake):
+        result = await runner.run_streamed("grade it", on_log=lambda *_a: None)
+    assert fake.calls == 0
+    assert result == "Decision: PASS. Confidence 0.9."
