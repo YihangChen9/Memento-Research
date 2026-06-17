@@ -2927,6 +2927,36 @@ def test_dispatch_producer_stage7_requires_result_figures(tmp_path, monkeypatch)
     )
 
 
+def test_dispatch_producer_stage8_enforces_number_traceability(tmp_path, monkeypatch):
+    """Stage 8 producer must be told the #44 number-traceability rule + run a
+    self-check before submit. Run 32e19fc5f3e7 died at Stage 8 because the
+    paper-writer fabricated high-precision stats not in the Stage 4-7 evidence
+    and the deterministic gate rejected it across all retries."""
+    dispatched = []
+    monkeypatch.setattr(pe, "_find_employee_by_skill",
+                        lambda skill: f"emp-{skill}" if skill else None)
+    monkeypatch.setattr(pe, "load_employee_configs", lambda: {})
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_to_employee",
+                        lambda self, *args: dispatched.append(args))
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event",
+                        lambda self, *args, **kwargs: None)
+
+    engine = pe.PipelineEngine("p1", str(tmp_path), "topic")
+    engine.state["current_stage"] = 8
+    engine._dispatch_producer()
+
+    low = dispatched[0][1].lower()
+    assert "stage7_result_analyst.md" in low or "result_json" in low, (
+        "Stage 8 dispatch must name the evidence numbers must trace to"
+    )
+    assert "traceab" in low and ("self-check" in low or "self check" in low), (
+        "Stage 8 dispatch must state the traceability rule AND mandate a self-check"
+    )
+    assert "fabricat" in low or "invent" in low or "recompute" in low, (
+        "Stage 8 dispatch must forbid inventing/recomputing numbers"
+    )
+
+
 def test_dispatch_critic_stage7_injects_result_quality_critic(tmp_path, monkeypatch):
     """Stage 7 critic dispatch must instruct the reviewer to load the
     result-quality-critic runbook so HARKing is auto-REJECTED."""
