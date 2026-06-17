@@ -3197,6 +3197,29 @@ class PipelineEngine:
                 upstream_parts.append(receipt.read_text(encoding="utf-8"))
             except OSError:
                 logger.debug("[PIPELINE] stage6 receipt not yet present — skipping for numbers gate")
+            # The experiment's DIAGNOSTIC numbers (n_iter_, coef L2-norms,
+            # per-fold accuracies, positive-control values) live in the audit
+            # log / result-json on the pushed tree (upstream/), NOT in
+            # RESULT_JSON. Without them the gate cannot catch a fabricated
+            # diagnostic: run fbb851a3d131 shipped coef-norm 0.284 /
+            # positive-control 0.9824 that contradict upstream/audit.jsonl
+            # (2.34 / 0.9789) and only Stage 9's human-style review caught it.
+            # Fold those artifacts into the evidence so the gate catches them.
+            upstream_dir = Path(self.project_dir) / "upstream"
+            if upstream_dir.is_dir():
+                ev_seen: set = set()
+                for pat in ("audit*.jsonl", "*audit*.json", "*result*.json",
+                            "*results*.json", "RESULT*.json"):
+                    for ev in upstream_dir.rglob(pat):
+                        if ".git/" in str(ev) or ev in ev_seen or len(ev_seen) >= 20:
+                            continue
+                        ev_seen.add(ev)
+                        try:
+                            txt = ev.read_text(encoding="utf-8")
+                            if 0 < len(txt) <= 300_000:
+                                upstream_parts.append(txt)
+                        except OSError:
+                            pass
             nums_ok, nums_reason = self._paper_numbers_gate(paper, "\n".join(upstream_parts))
             if not nums_ok:
                 return False, nums_reason

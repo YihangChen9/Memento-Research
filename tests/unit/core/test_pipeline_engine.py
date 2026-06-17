@@ -3706,6 +3706,39 @@ def test_data_gate_stage8_fails_when_upstream_stage7_has_no_data(tmp_path, monke
     assert "Stage 7" in redispatched[0]
 
 
+def test_stage8_numbers_gate_includes_upstream_audit_artifacts(tmp_path):
+    """#44 evidence must include upstream/ audit/result artifacts. The
+    diagnostic numbers (coef L2-norms, positive-control, per-fold accuracy)
+    live in audit.jsonl, NOT in RESULT_JSON — run fbb851a3d131 shipped a
+    fabricated coef-norm 0.284 (real 2.34 in audit.jsonl) that the gate missed
+    because audit.jsonl was not in its evidence set. Now it is."""
+    engine = pe.PipelineEngine("p1", str(tmp_path), "topic")
+    skill7 = engine._stage_def(7).get("skill", "")
+    (tmp_path / f"stage7_{skill7}.md").write_text(
+        "### H1\nDecision: SUPPORTED\nacc_scaled_mean 0.9789, acc_raw_mean 0.9508\n",
+        encoding="utf-8")
+    up = tmp_path / "upstream"; up.mkdir()
+    (up / "audit.jsonl").write_text(
+        '{"fold":0,"coef_l2_raw":2.34,"coef_l2_scaled":3.68}\n', encoding="utf-8")
+    skill8 = engine._stage_def(8).get("skill", "")
+    paper8 = tmp_path / f"stage8_{skill8}.md"
+
+    # (a) cites the REAL audit values → traceable → pass
+    paper8.write_text(
+        "Raw coef L2-norm 2.34, scaled 3.68. Accuracy 0.9789 vs 0.9508.\n", encoding="utf-8")
+    ok, _ = engine._stage_data_gate(8, paper8.read_text())
+    assert ok, "values present in upstream/audit.jsonl must be traceable now"
+
+    # (b) cites FABRICATED diagnostics absent from every artifact → reject
+    paper8.write_text(
+        "Raw coef L2-norm 0.284, scaled 2.87. Accuracy 0.9789 vs 0.9508.\n", encoding="utf-8")
+    ok2, reason = engine._stage_data_gate(8, paper8.read_text())
+    assert not ok2 and "traceable" in reason.lower(), (
+        "fabricated high-precision diagnostics must be caught now that "
+        f"audit.jsonl is in the evidence set (got ok={ok2}, reason={reason!r})"
+    )
+
+
 def test_data_gate_stage8_passes_when_upstream_stage7_has_data(tmp_path, monkeypatch):
     """Control: Stage 8 advances when Stage 7 carried a real tested hypothesis."""
     monkeypatch.setattr(pe.PipelineEngine, "_emit_critic_result", lambda self, *a, **k: None)
