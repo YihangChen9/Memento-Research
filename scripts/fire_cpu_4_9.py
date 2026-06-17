@@ -47,7 +47,12 @@ TOPIC = (
     "delta_mean, n_seeds, n_folds. Smoke = seed [0] only (<1 min); full = seeds "
     "[0,1,2] (<2 min) — both run in SECONDS on CPU. Pin pypa/sampleproject as "
     "the host repo and add src/sample/benchmark.py with a --smoke / --seed CLI. "
-    "Dependencies: scikit-learn + numpy only (already standard)."
+    "ENVIRONMENT: scikit-learn is NOT preinstalled in any host conda env, so "
+    "Stage 6a MUST use the uv-venv env-build path (issue #117): ship a pinned "
+    "requirements.txt (scikit-learn, numpy), submit the uv_venv_local.yaml "
+    "env-build run ONCE, and set gpu_required:false / env_strategy:uv-venv in "
+    "the receipt; 6b then runs `.venv/bin/python -m sample.benchmark`. Do NOT "
+    "request a GPU."
 )
 
 
