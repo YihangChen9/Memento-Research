@@ -170,6 +170,53 @@ class TestCriticD10FrameworkFigure:
         assert "numbered caption" in text or "Figure 1." in text
 
 
+class TestCriticGroundingRule:
+    """nature-skills #1: both critics must instruct grading only against
+    verifiable evidence, with a NOT ASSESSABLE escape hatch that counts as
+    FAIL — never a silent pass on assumption."""
+
+    def test_methodology_critic_has_grounding_rule(self):
+        text = QUALITY_CRITIC.read_text(encoding="utf-8")
+        assert "Grounding rule" in text
+        assert "NOT ASSESSABLE" in text
+
+    def test_experiment_critic_has_grounding_rule(self):
+        text = EXP_CRITIC.read_text(encoding="utf-8")
+        assert "Grounding rule" in text
+        assert "NOT ASSESSABLE" in text
+
+    def test_grounding_rule_treats_unverifiable_as_fail(self):
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            flat = " ".join(path.read_text(encoding="utf-8").split())
+            assert "treat it as a FAIL" in flat
+            assert "never pass a dimension on assumption" in flat
+
+
+class TestCriticStructuredFindings:
+    """nature-skills #2: critics emit a per-issue Findings list (id /
+    severity / required_action) so the producer can close objections
+    point-by-point. The block must be additive — the Decision line stays."""
+
+    def test_both_critics_have_findings_block(self):
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            text = path.read_text(encoding="utf-8")
+            assert "Findings:" in text
+            for field in ("id:", "severity:", "required_action:"):
+                assert field in text, f"{field} missing in {path.name}"
+
+    def test_findings_blocking_must_be_closed(self):
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            flat = " ".join(path.read_text(encoding="utf-8").split())
+            assert "blocking" in flat
+            assert "must be closed" in flat
+
+    def test_findings_do_not_replace_decision_line(self):
+        # The parseable Decision line must still be specified.
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            text = path.read_text(encoding="utf-8")
+            assert "Decision: PASS | REJECT" in text or "Decision: PASS" in text
+
+
 def test_stage4_dispatch_calls_figure_skill_required():
     """Stage 4 producer task description must call the figure skill
     REQUIRED (not optional). Wording change from PR #58: 'may auto-REJECT'

@@ -173,6 +173,17 @@ writing is sloppy. Grade the prose against academic standards.
 3. **Walk the 8-dimension checklist.** For each, classify PASS or FAIL with a one-sentence rationale.
 4. **Aggregate.** Output structure below.
 
+### Grounding rule — grade only what you can verify
+
+Score each dimension **only** against evidence actually present in the
+producer's deliverable and the artifacts it cites. Do not fill gaps from
+domain habit, memory, or what a CCF-A paper "should" contain. If a
+dimension cannot be checked from the provided material — the relevant
+file is missing, silent, or unparseable — classify it **NOT ASSESSABLE**
+(state the exact file/section you looked for) and treat it as a FAIL for
+the decision rule. An unverifiable claim has not earned a PASS; never
+pass a dimension on assumption.
+
 ---
 
 ## Output Format (the producer's task description asks for confidence + PASS/REJECT + reasoning)
@@ -195,8 +206,21 @@ Per-dimension scoring:
   D11 Method Formalization   : PASS / FAIL — <one sentence>
   D12 Contribution & Novelty : PASS / FAIL — <one sentence>
 
-If REJECT, list the specific section(s) the producer must rewrite, with
-example improvements drawn from the debate transcript where possible.
+If REJECT — or whenever any dimension is FAIL or NOT ASSESSABLE — also emit
+one finding per issue so the producer can close them point-by-point on the
+next attempt. These findings are ADDITIONAL to the lines above; do not alter
+the Decision line.
+
+Findings:
+  - id: F1
+    dimension: D3
+    severity: blocking | major | minor   # blocking = fails a hard-gate dim in the Decision Rule
+    problem: <one sentence — what is wrong>
+    required_action: <the concrete fix the producer must make, drawn from the debate transcript where possible>
+    evidence: <file/section you checked, or "missing">
+  # ... one entry per failed or NOT-ASSESSABLE dimension
+
+Every `blocking` finding must be closed (cite its id) before the stage can pass.
 ```
 
 ### Confidence scale

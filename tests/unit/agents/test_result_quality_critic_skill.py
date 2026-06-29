@@ -117,6 +117,41 @@ class TestRunbookBehaviour:
         )
 
 
+class TestGroundingRule:
+    """nature-skills #1: grade only against verifiable evidence; unverifiable
+    dimensions are NOT ASSESSABLE and count as FAIL, not a silent pass."""
+
+    def test_has_grounding_rule(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert "Grounding rule" in text
+        assert "NOT ASSESSABLE" in text
+
+    def test_grounding_rule_treats_unverifiable_as_fail(self):
+        flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+        assert "treat it as a FAIL" in flat
+        assert "never pass a dimension on assumption" in flat
+
+
+class TestStructuredFindings:
+    """nature-skills #2: per-issue Findings list, additive to the Decision
+    line, with a blocking severity that must be closed before passing."""
+
+    def test_has_findings_block(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert "Findings:" in text
+        for field in ("id:", "severity:", "required_action:"):
+            assert field in text
+
+    def test_blocking_must_be_closed(self):
+        flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+        assert "blocking" in flat
+        assert "must be closed" in flat
+
+    def test_decision_line_preserved(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert "Decision: PASS" in text
+
+
 class TestRunbookOnboardingWiring:
     """Cross-check that the critic runbook is wired into onboarding for
     the adversarial_review skill."""

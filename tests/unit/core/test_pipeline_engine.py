@@ -309,6 +309,60 @@ def test_critic_reject_retries_with_feedback(tmp_path, monkeypatch):
     assert critic_events == [((3, "REJECT\nconfidence: 0.41\nNeeds tighter scope", False, 0.41), {})]
 
 
+def test_findings_gate_overrides_pass_with_open_blocking(tmp_path, monkeypatch):
+    """P2: a critic that votes PASS while leaving a `blocking` finding open is
+    self-contradictory — the deterministic findings gate flips it to a retry."""
+    producer_feedback = []
+    monkeypatch.setattr(pe.PipelineEngine, "_dispatch_producer", lambda self, feedback="": producer_feedback.append(feedback))
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event", lambda self, *a, **k: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_critic_result", lambda self, *a, **k: None)
+
+    engine = pe.PipelineEngine("p1", str(tmp_path), "topic")
+    engine.state["phase"] = "critic"
+    engine.state["stage_results"] = {"3": "producer output"}
+    critic = (
+        "Decision: PASS\n"
+        "Confidence: 0.80\n\n"
+        "Findings:\n"
+        "  - id: F1\n"
+        "    dimension: D3\n"
+        "    severity: blocking\n"
+        "    problem: no control condition\n"
+    )
+    engine.on_task_complete("critic", "node", critic)
+
+    # PASS overridden -> stage did not advance; producer re-dispatched with the
+    # gate-fail feedback naming the open blocking finding.
+    assert engine.state["retries"] == 1
+    assert producer_feedback and "FINDINGS_GATE_FAIL" in producer_feedback[0]
+    assert "F1" in producer_feedback[0]
+
+
+def test_findings_gate_allows_pass_with_only_nonblocking(tmp_path, monkeypatch):
+    """A PASS with only major/minor findings (or the template placeholder) is
+    NOT overridden — the stage advances to the CEO gate as normal."""
+    gate_events = []
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_critic_result", lambda self, *a, **k: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_stage_event", lambda self, *a, **k: None)
+    monkeypatch.setattr(pe.PipelineEngine, "_emit_gate_event", lambda self, *args, **kwargs: gate_events.append((args, kwargs)))
+
+    engine = pe.PipelineEngine("p1", str(tmp_path), "topic")
+    engine.state["phase"] = "critic"
+    engine.state["stage_results"] = {"3": "producer output"}
+    critic = (
+        "Decision: PASS\n"
+        "Confidence: 0.90\n\n"
+        "Findings:\n"
+        "  - id: F1\n"
+        "    dimension: D6\n"
+        "    severity: minor\n"
+    )
+    engine.on_task_complete("critic", "node", critic)
+
+    assert engine.phase == "gate"
+    assert gate_events == [((3, 0.90), {})]
+
+
 def test_critic_reject_exhausted_waits_for_ceo(tmp_path, monkeypatch):
     gate_events = []
     monkeypatch.setattr(pe.PipelineEngine, "_emit_critic_result", lambda self, *args, **kwargs: None)
