@@ -28,7 +28,19 @@ Do NOT call the API until you have:
   2. Produced the 4-section summary in EXACTLY the schema below
      (背景 / 问题和难点 / 创新点 / 具体的技术路线). No abbreviation,
      no skipping numbered points, no "...etc."
-  3. Verified `OPENROUTER_API_KEY` is set (env var). If unset, STOP and
+  3. Written a one-paragraph **figure contract** ABOVE the summary that
+     states, in plain prose:
+       - **Takeaway**: the single claim a reader should grasp from the
+         figure in 5 seconds (one sentence).
+       - **Central vs supporting**: which one component/flow is the visual
+         centerpiece (the contribution), and which are context/baseline.
+       - **Specificity hook**: 1-2 elements that make this figure
+         unmistakably about THIS paper (named modules, the actual data
+         flow, the novel step) and could not appear in a generic pipeline.
+     The figure prompt must then realise this contract — decide the
+     argument before the drawing. If the contract is generic, the figure
+     will be too (and the critic auto-REJECTs it).
+  4. Verified `OPENROUTER_API_KEY` is set (env var). If unset, STOP and
      report missing-credential — do NOT guess a key, do NOT hardcode one.
 
 If the figure is missing or shows a generic flowchart unrelated to the

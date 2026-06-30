@@ -170,6 +170,49 @@ class TestCriticD10FrameworkFigure:
         assert "numbered caption" in text or "Figure 1." in text
 
 
+class TestCriticGroundingRule:
+    """nature-skills #1 (P1 refactor): the verbatim grounding rule now lives
+    once in ``ccf-review-core``. Each critic must LOAD that core and still
+    reference the rule's vocabulary (NOT ASSESSABLE) so a reviewer who reads
+    only the critic still knows to apply it."""
+
+    def test_methodology_critic_loads_core_and_references_grounding(self):
+        text = QUALITY_CRITIC.read_text(encoding="utf-8")
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding rule" in text.lower()
+        assert "NOT ASSESSABLE" in text
+
+    def test_experiment_critic_loads_core_and_references_grounding(self):
+        text = EXP_CRITIC.read_text(encoding="utf-8")
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding rule" in text.lower()
+        assert "NOT ASSESSABLE" in text
+
+
+class TestCriticStructuredFindings:
+    """nature-skills #2 (P1 refactor): the Findings schema lives in
+    ``ccf-review-core``. Each critic must point at it (so the producer gets
+    the per-issue list) while keeping its own machine-read Decision line."""
+
+    def test_both_critics_reference_core_findings_schema(self):
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            text = path.read_text(encoding="utf-8")
+            assert "ccf-review-core" in text, path.name
+            assert "Findings:" in text, path.name
+
+    def test_findings_blocking_must_be_closed(self):
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            flat = " ".join(path.read_text(encoding="utf-8").split())
+            assert "blocking" in flat
+            assert "must be closed" in flat
+
+    def test_findings_do_not_replace_decision_line(self):
+        # The parseable Decision line must still be specified.
+        for path in (QUALITY_CRITIC, EXP_CRITIC):
+            text = path.read_text(encoding="utf-8")
+            assert "Decision: PASS | REJECT" in text or "Decision: PASS" in text
+
+
 def test_stage4_dispatch_calls_figure_skill_required():
     """Stage 4 producer task description must call the figure skill
     REQUIRED (not optional). Wording change from PR #58: 'may auto-REJECT'

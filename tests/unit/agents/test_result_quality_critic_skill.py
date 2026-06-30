@@ -117,6 +117,42 @@ class TestRunbookBehaviour:
         )
 
 
+class TestGroundingRule:
+    """nature-skills #1 (P1 refactor): the verbatim grounding rule lives in
+    ``ccf-review-core``. The Stage 7 critic loads it and keeps the
+    result-specific note (RESULT_JSON, data-gate companion)."""
+
+    def test_loads_core_and_references_grounding(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding" in text.lower()
+        assert "NOT ASSESSABLE" in text
+
+    def test_keeps_data_gate_companion_note(self):
+        flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+        assert "data gate" in flat.lower()
+
+
+class TestStructuredFindings:
+    """nature-skills #2 (P1 refactor): the Findings schema lives in
+    ``ccf-review-core``; the Stage 7 critic points at it and keeps its own
+    machine-read Decision line."""
+
+    def test_references_core_findings_schema(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert "ccf-review-core" in text
+        assert "Findings block" in text or "Findings:" in text
+
+    def test_blocking_must_be_closed(self):
+        flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+        assert "blocking" in flat
+        assert "must be closed" in flat
+
+    def test_decision_line_preserved(self):
+        text = RUNBOOK.read_text(encoding="utf-8")
+        assert "Decision: PASS" in text
+
+
 class TestRunbookOnboardingWiring:
     """Cross-check that the critic runbook is wired into onboarding for
     the adversarial_review skill."""

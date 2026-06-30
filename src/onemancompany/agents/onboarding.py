@@ -92,6 +92,12 @@ _EA_SKILL_NAMES = ["project-brainstorming"]
 # `adversarial_review` employee) is still in `default_skills/`.
 _SKILL_REQUIRED_RUNBOOKS: dict[str, list[str]] = {
     "adversarial_review": [
+        # Shared grading vocabulary loaded first by each critic via
+        # load_skill("ccf-review-core") — single source of truth for the
+        # grounding rule, Findings schema, confidence scale, and decision
+        # conventions. Must be injected alongside the critics so the
+        # load_skill call resolves.
+        "ccf-review-core",
         "methodology-quality-critic",
         "experiment-quality-critic",
         "result-quality-critic",
@@ -765,26 +771,32 @@ def _inject_default_skills(
         if not dst.exists():
             shutil.copytree(str(src), str(dst))
         else:
-            # Sync SKILL.md from source to pick up changes
-            src_md = src / "SKILL.md"
-            dst_md = dst / "SKILL.md"
-            if src_md.exists():
-                shutil.copy2(str(src_md), str(dst_md))
-            # Sync hooks/ and other subdirectories (new scripts, templates)
-            for sub in src.iterdir():
-                if sub.is_dir() and sub.name != "__pycache__":
-                    dst_sub = dst / sub.name
-                    if not dst_sub.exists():
-                        shutil.copytree(str(sub), str(dst_sub))
-                    else:
-                        # Copy new files into existing subdir
-                        for f in sub.iterdir():
-                            dst_f = dst_sub / f.name
-                            if not dst_f.exists():
-                                if f.is_file():
-                                    shutil.copy2(str(f), str(dst_f))
-                                elif f.is_dir():
-                                    shutil.copytree(str(f), str(dst_f))
+            # Hot-update: mirror every source file (SKILL.md, manifest.yaml,
+            # static/, references/, hooks/ …) over the employee's copy so a
+            # change to default_skills/ propagates on the next onboard, while
+            # leaving employee-only files in place.
+            _sync_skill_tree(src, dst)
+
+
+def _sync_skill_tree(src: Path, dst: Path) -> None:
+    """Recursively mirror ``src`` into ``dst``.
+
+    Every file present in ``src`` is copied over its ``dst`` counterpart
+    (overwrite), and directories are recursed. Files/dirs that exist only in
+    ``dst`` (employee-specific additions) are left untouched — this is a
+    one-way overlay, never a delete-sync. ``__pycache__`` and ``.git`` are
+    skipped so we don't ship build/VCS noise into a skill folder.
+    """
+    _SKIP = {"__pycache__", ".git"}
+    dst.mkdir(parents=True, exist_ok=True)
+    for child in src.iterdir():
+        if child.name in _SKIP:
+            continue
+        dst_child = dst / child.name
+        if child.is_dir():
+            _sync_skill_tree(child, dst_child)
+        elif child.is_file():
+            shutil.copy2(str(child), str(dst_child))
 
 
 # ---------------------------------------------------------------------------

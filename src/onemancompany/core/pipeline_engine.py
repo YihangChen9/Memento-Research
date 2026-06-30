@@ -2205,6 +2205,28 @@ class PipelineEngine:
                             f"--- original critic verdict ---\n{result}"
                         )
 
+                # Findings gate (#2/P2): a PASS verdict must not leave any
+                # `blocking` finding open. Deterministic override, same class
+                # as the data gate — the critic cannot pass a stage on a
+                # verdict that contradicts its own blocking findings.
+                if is_pass:
+                    open_blocking = self._open_blocking_findings(result)
+                    if open_blocking:
+                        logger.warning(
+                            "[PIPELINE] Stage {} findings-gate FAIL despite critic "
+                            "PASS: {} unresolved blocking finding(s): {}",
+                            stage["id"], len(open_blocking), ", ".join(open_blocking),
+                        )
+                        is_pass = False
+                        result = (
+                            f"FINDINGS_GATE_FAIL: critic voted PASS but left "
+                            f"{len(open_blocking)} unresolved blocking finding(s) "
+                            f"({', '.join(open_blocking)}). A stage cannot pass while a "
+                            f"blocking finding is open — close each by id, or downgrade "
+                            f"its severity with justification.\n\n"
+                            f"--- original critic verdict ---\n{result}"
+                        )
+
             # Emit critic result to frontend so it shows in the stage card
             self._emit_critic_result(stage["id"], result, is_pass, confidence)
 
@@ -3564,6 +3586,41 @@ class PipelineEngine:
         if head.startswith("REJECT"):
             return False
         return None
+
+    # Findings gate (nature-skills #2 / P2): the *-quality-critic skills emit a
+    # structured ``Findings:`` list, one entry per failed/NOT-ASSESSABLE
+    # dimension, each with a ``severity:`` of blocking | major | minor. A
+    # ``blocking`` finding fails a hard-gate dimension, so a critic that votes
+    # PASS while still carrying one is self-contradictory. The engine treats
+    # that as a deterministic REJECT (same class as the data gate).
+    _FINDING_ID_RE = re.compile(r"^\s*-\s*id:\s*([A-Za-z0-9_.-]+)\s*$", re.MULTILINE)
+    _FINDING_SEVERITY_RE = re.compile(r"^\s*severity:\s*(.+?)\s*(?:#.*)?$")
+
+    @classmethod
+    def _open_blocking_findings(cls, text: str) -> list[str]:
+        """Return the ids of findings the critic marked ``severity: blocking``.
+
+        Pairs each ``severity:`` line with the most recent ``- id:`` marker.
+        The unfilled template placeholder (``severity: blocking | major |
+        minor``) is ignored — only a concrete chosen value of exactly
+        ``blocking`` counts, so the gate never trips on the schema example.
+        """
+        if not text:
+            return []
+        ids: list[str] = []
+        cur_id: str | None = None
+        for line in text.splitlines():
+            m = cls._FINDING_ID_RE.match(line)
+            if m:
+                cur_id = m.group(1)
+                continue
+            sev = cls._FINDING_SEVERITY_RE.match(line)
+            if sev and cur_id is not None:
+                val = sev.group(1).strip().strip("`*").lower()
+                if "|" not in val and val == "blocking":
+                    ids.append(cur_id)
+                cur_id = None  # one severity per finding; consume it
+        return ids
 
     # Result-driven loop (#40): the result-reviewer routes the pipeline back
     # to an earlier stage when the experiment's RESULT (not its report) is
