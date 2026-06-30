@@ -257,6 +257,50 @@ class TestInjectDefaultSkills:
         assert (dst_dir / "SKILL.md").read_text() == "UPDATED CONTENT"
         assert (dst_dir / "hooks" / "hook.py").exists()
 
+    def test_inject_hot_updates_subdir_and_toplevel_files(self, tmp_path, monkeypatch):
+        """P0: a change to default_skills/ must propagate to an existing
+        employee copy — not only NEW files. Pre-fix, manifest.yaml (a
+        top-level non-SKILL.md file) and edits to static/ never synced."""
+        import onemancompany.agents.onboarding as ob_mod
+        monkeypatch.setattr(ob_mod, "_DEFAULT_SKILLS_DIR", tmp_path / "default_skills")
+
+        src_dir = tmp_path / "default_skills" / "task_lifecycle"
+        (src_dir / "static").mkdir(parents=True)
+        (src_dir / "static" / "deep").mkdir()
+        (src_dir / "SKILL.md").write_text("NEW SKILL")
+        (src_dir / "manifest.yaml").write_text("version: 2")          # top-level file
+        (src_dir / "static" / "core.md").write_text("NEW VOCAB")       # existing subdir file
+        (src_dir / "static" / "deep" / "x.md").write_text("NESTED")    # nested subdir file
+
+        skills_dir = tmp_path / "skills"
+        dst_dir = skills_dir / "task_lifecycle"
+        (dst_dir / "static").mkdir(parents=True)
+        (dst_dir / "SKILL.md").write_text("OLD SKILL")
+        (dst_dir / "manifest.yaml").write_text("version: 1")
+        (dst_dir / "static" / "core.md").write_text("OLD VOCAB")
+        # employee-only file that the source does NOT have — must survive
+        (dst_dir / "static" / "employee_notes.md").write_text("keep me")
+
+        ob_mod._inject_default_skills(skills_dir, employee_id="00021")
+
+        # source-present files overwrite, including top-level + nested
+        assert (dst_dir / "manifest.yaml").read_text() == "version: 2"
+        assert (dst_dir / "static" / "core.md").read_text() == "NEW VOCAB"
+        assert (dst_dir / "static" / "deep" / "x.md").read_text() == "NESTED"
+        # employee-only file is preserved (one-way overlay, never delete-sync)
+        assert (dst_dir / "static" / "employee_notes.md").read_text() == "keep me"
+
+    def test_sync_skill_tree_skips_pycache(self, tmp_path):
+        import onemancompany.agents.onboarding as ob_mod
+        src = tmp_path / "src"
+        (src / "__pycache__").mkdir(parents=True)
+        (src / "__pycache__" / "junk.pyc").write_text("x")
+        (src / "SKILL.md").write_text("ok")
+        dst = tmp_path / "dst"
+        ob_mod._sync_skill_tree(src, dst)
+        assert (dst / "SKILL.md").exists()
+        assert not (dst / "__pycache__").exists()
+
 
 # ---------------------------------------------------------------------------
 # _assign_default_avatar (lines 673-694)

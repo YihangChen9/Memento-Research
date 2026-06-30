@@ -171,9 +171,10 @@ def test_open_blocking_findings_empty_when_no_blocker(text):
 
 
 def test_open_blocking_findings_does_not_trip_on_skill_template():
-    """The literal `Findings:` schema shipped in each *-quality-critic
-    SKILL.md must parse to zero blockers — the gate fires on real findings,
-    never on the documentation example."""
+    """The literal `Findings:` schema — now centralised in ccf-review-core,
+    and any residual reference in each *-quality-critic SKILL.md — must parse
+    to zero blockers. The gate fires on real critic findings, never on the
+    shipped documentation example (which uses the `a | b | c` placeholder)."""
     from pathlib import Path
 
     root = (
@@ -181,6 +182,7 @@ def test_open_blocking_findings_does_not_trip_on_skill_template():
         / "src" / "onemancompany" / "default_skills"
     )
     for name in (
+        "ccf-review-core",
         "methodology-quality-critic",
         "experiment-quality-critic",
         "result-quality-critic",

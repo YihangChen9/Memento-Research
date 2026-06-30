@@ -138,23 +138,22 @@ For every claim in Stage 7's confirmatory section:
 
 ## How to Run the Review
 
+0. **Load the shared conventions first.** Call
+   `load_skill("ccf-review-core")` and apply it — it defines the
+   **grounding rule**, the **structured Findings schema**, the
+   **confidence scale**, and the **decision-rule conventions** this review
+   depends on. Skipping it makes the review invalid.
 1. Read all five artifacts (Stage 4, 5, 5-assignments, 6, 7).
 2. Reconstruct the pre-registration contract from Stage 4/5 (do NOT
    trust Stage 7's contract table; verify it against the source).
-3. Walk D1-D11. For each, write a one-sentence justification.
+3. Walk D1-D11. For each, classify PASS / FAIL / NOT ASSESSABLE (per the
+   core grounding rule) with a one-sentence justification.
 4. Decide PASS / REJECT. State the failing dimension(s) on REJECT.
 
-### Grounding rule — grade only what you can verify
-
-Score each dimension **only** against evidence actually present in the
-producer's deliverable and the artifacts it cites (Stage 4/5/6/7 files,
-RESULT_JSON). Do not fill gaps from domain habit, memory, or what a
-result section "should" report. If a dimension cannot be checked from the
-provided material — the relevant file is missing, silent, or unparseable
-— classify it **NOT ASSESSABLE** (state the exact file/section you looked
-for) and treat it as a FAIL for the decision rule. An unverifiable claim
-has not earned a PASS; never pass a dimension on assumption. (This is the
-qualitative-judgment companion to the deterministic data gate.)
+Grounding note: the core **grounding rule** applies to the Stage 4/5/6/7
+files and RESULT_JSON — a dimension you cannot verify from them is NOT
+ASSESSABLE (= FAIL), never a silent pass. This is the qualitative-judgment
+companion to the deterministic data gate.
 
 ## Output Format
 
@@ -180,16 +179,12 @@ Per-dimension scoring:
 Rationale: <2-4 sentences summarising the verdict and pointing the
 producer at any failing dimension>
 
-Findings:    # emit when REJECT, or any dimension is FAIL / NOT ASSESSABLE.
-             # ADDITIONAL to the lines above; do not alter the Decision line.
-  - id: F1
-    dimension: D2
-    severity: blocking | major | minor   # blocking = fails a hard-gate dim (D1-D5) or an auto-REJECT trigger
-    problem: <one sentence — what is wrong>
-    required_action: <the concrete fix; cite the contract/run_id/artifact it must trace to>
-    evidence: <file/section you verified, or "missing">
-  # ... one entry per failed or NOT-ASSESSABLE dimension
-# Every `blocking` finding must be closed (cite its id) before the stage can pass.
+[Findings block here — emit exactly as specified in `ccf-review-core`
+ when REJECT, or whenever any dimension is FAIL / NOT ASSESSABLE. One
+ entry per failed / NOT-ASSESSABLE dimension; `severity: blocking` for any
+ D1-D5 (hard-gate) or auto-REJECT failure. ADDITIONAL to the lines above;
+ never alters the Decision line. Every `blocking` finding must be closed
+ (cite its id) before the stage can pass.]
 ```
 
 ## Decision Rule

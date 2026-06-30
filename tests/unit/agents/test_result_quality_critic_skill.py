@@ -118,29 +118,30 @@ class TestRunbookBehaviour:
 
 
 class TestGroundingRule:
-    """nature-skills #1: grade only against verifiable evidence; unverifiable
-    dimensions are NOT ASSESSABLE and count as FAIL, not a silent pass."""
+    """nature-skills #1 (P1 refactor): the verbatim grounding rule lives in
+    ``ccf-review-core``. The Stage 7 critic loads it and keeps the
+    result-specific note (RESULT_JSON, data-gate companion)."""
 
-    def test_has_grounding_rule(self):
+    def test_loads_core_and_references_grounding(self):
         text = RUNBOOK.read_text(encoding="utf-8")
-        assert "Grounding rule" in text
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding" in text.lower()
         assert "NOT ASSESSABLE" in text
 
-    def test_grounding_rule_treats_unverifiable_as_fail(self):
+    def test_keeps_data_gate_companion_note(self):
         flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
-        assert "treat it as a FAIL" in flat
-        assert "never pass a dimension on assumption" in flat
+        assert "data gate" in flat.lower()
 
 
 class TestStructuredFindings:
-    """nature-skills #2: per-issue Findings list, additive to the Decision
-    line, with a blocking severity that must be closed before passing."""
+    """nature-skills #2 (P1 refactor): the Findings schema lives in
+    ``ccf-review-core``; the Stage 7 critic points at it and keeps its own
+    machine-read Decision line."""
 
-    def test_has_findings_block(self):
+    def test_references_core_findings_schema(self):
         text = RUNBOOK.read_text(encoding="utf-8")
-        assert "Findings:" in text
-        for field in ("id:", "severity:", "required_action:"):
-            assert field in text
+        assert "ccf-review-core" in text
+        assert "Findings block" in text or "Findings:" in text
 
     def test_blocking_must_be_closed(self):
         flat = " ".join(RUNBOOK.read_text(encoding="utf-8").split())

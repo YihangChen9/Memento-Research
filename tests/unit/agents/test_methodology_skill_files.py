@@ -171,38 +171,34 @@ class TestCriticD10FrameworkFigure:
 
 
 class TestCriticGroundingRule:
-    """nature-skills #1: both critics must instruct grading only against
-    verifiable evidence, with a NOT ASSESSABLE escape hatch that counts as
-    FAIL — never a silent pass on assumption."""
+    """nature-skills #1 (P1 refactor): the verbatim grounding rule now lives
+    once in ``ccf-review-core``. Each critic must LOAD that core and still
+    reference the rule's vocabulary (NOT ASSESSABLE) so a reviewer who reads
+    only the critic still knows to apply it."""
 
-    def test_methodology_critic_has_grounding_rule(self):
+    def test_methodology_critic_loads_core_and_references_grounding(self):
         text = QUALITY_CRITIC.read_text(encoding="utf-8")
-        assert "Grounding rule" in text
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding rule" in text.lower()
         assert "NOT ASSESSABLE" in text
 
-    def test_experiment_critic_has_grounding_rule(self):
+    def test_experiment_critic_loads_core_and_references_grounding(self):
         text = EXP_CRITIC.read_text(encoding="utf-8")
-        assert "Grounding rule" in text
+        assert 'load_skill("ccf-review-core")' in text
+        assert "grounding rule" in text.lower()
         assert "NOT ASSESSABLE" in text
-
-    def test_grounding_rule_treats_unverifiable_as_fail(self):
-        for path in (QUALITY_CRITIC, EXP_CRITIC):
-            flat = " ".join(path.read_text(encoding="utf-8").split())
-            assert "treat it as a FAIL" in flat
-            assert "never pass a dimension on assumption" in flat
 
 
 class TestCriticStructuredFindings:
-    """nature-skills #2: critics emit a per-issue Findings list (id /
-    severity / required_action) so the producer can close objections
-    point-by-point. The block must be additive — the Decision line stays."""
+    """nature-skills #2 (P1 refactor): the Findings schema lives in
+    ``ccf-review-core``. Each critic must point at it (so the producer gets
+    the per-issue list) while keeping its own machine-read Decision line."""
 
-    def test_both_critics_have_findings_block(self):
+    def test_both_critics_reference_core_findings_schema(self):
         for path in (QUALITY_CRITIC, EXP_CRITIC):
             text = path.read_text(encoding="utf-8")
-            assert "Findings:" in text
-            for field in ("id:", "severity:", "required_action:"):
-                assert field in text, f"{field} missing in {path.name}"
+            assert "ccf-review-core" in text, path.name
+            assert "Findings:" in text, path.name
 
     def test_findings_blocking_must_be_closed(self):
         for path in (QUALITY_CRITIC, EXP_CRITIC):

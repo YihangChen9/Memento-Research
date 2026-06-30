@@ -109,22 +109,17 @@ table — if the table is vague, Stage 6 fails.
 
 ## How to Run the Review
 
+0. **Load the shared conventions first.** Call
+   `load_skill("ccf-review-core")` and apply it — it defines the
+   **grounding rule**, the **structured Findings schema**, the
+   **confidence scale**, and the **decision-rule conventions** this review
+   depends on. Skipping it makes the review invalid.
 1. Verify all three files exist (`stage5_experiment_designer.md`,
    `stage5_assignments.md`, `stage5_debate_transcript.md`).
 2. Read the experiment plan and assignments table in full.
-3. Walk the 12-dimension checklist. PASS / FAIL with one-sentence rationale.
+3. Walk the 12-dimension checklist. PASS / FAIL / NOT ASSESSABLE (per the
+   core grounding rule) with one-sentence rationale.
 4. Aggregate per the decision rule.
-
-### Grounding rule — grade only what you can verify
-
-Score each dimension **only** against evidence actually present in the
-producer's deliverable and the artifacts it cites. Do not fill gaps from
-domain habit, memory, or what a CCF-A paper "should" contain. If a
-dimension cannot be checked from the provided material — the relevant
-file is missing, silent, or unparseable — classify it **NOT ASSESSABLE**
-(state the exact file/section you looked for) and treat it as a FAIL for
-the decision rule. An unverifiable claim has not earned a PASS; never
-pass a dimension on assumption.
 
 ---
 
@@ -148,29 +143,15 @@ Per-dimension scoring:
   D11 Citation of Debate       : PASS / FAIL — <one sentence>
   D12 Language & Style         : PASS / FAIL — <one sentence>
 
-If REJECT — or whenever any dimension is FAIL or NOT ASSESSABLE — also emit
-one finding per issue so the producer can close them point-by-point on the
-next attempt. These findings are ADDITIONAL to the lines above; do not alter
-the Decision line.
-
-Findings:
-  - id: F1
-    dimension: D3
-    severity: blocking | major | minor   # blocking = fails a hard-gate dim in the Decision Rule
-    problem: <one sentence — what is wrong>
-    required_action: <the concrete fix the producer must make, drawn from the debate transcript where possible>
-    evidence: <file/section you checked, or "missing">
-  # ... one entry per failed or NOT-ASSESSABLE dimension
-
-Every `blocking` finding must be closed (cite its id) before the stage can pass.
+When REJECT — or whenever any dimension is FAIL or NOT ASSESSABLE — append a
+`Findings:` block **exactly as specified in `ccf-review-core`** (one entry
+per failed / NOT-ASSESSABLE dimension; `severity: blocking` for any hard-gate
+or auto-REJECT failure). The block is ADDITIONAL to the lines above and never
+alters the `Decision:` line. Every `blocking` finding must be closed (cite its
+id) before this stage can pass.
 ```
 
-### Confidence scale
-
-- **0.90–1.00** All 12 dimensions PASS with clear margin. Experiment plan is CCF-A ready AND Stage 6 can dispatch from the assignments.
-- **0.75–0.89** Most PASS; 1-2 FAIL on D9/D11/D12 (repro / citation / style) — quick fixes.
-- **0.55–0.74** Several FAILs including D3/D5/D8/D10 — plan unfinished; REJECT.
-- **0.00–0.54** Structural failure (missing file, no procedure, no power math, non-English). REJECT immediately.
+Confidence is calibrated on the shared scale in `ccf-review-core`.
 
 ### Decision rule
 
